@@ -38,12 +38,6 @@ export default function App() {
     refresh().catch((err) => setError(err.message));
   }, [refresh]);
 
-  useEffect(() => {
-    if (status && !status.setupComplete && page !== "setup") {
-      setPage("setup");
-    }
-  }, [status, page]);
-
   if (!status) {
     return (
       <div className="min-h-screen grid place-items-center font-sans">
@@ -82,6 +76,12 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
+        {!status.setupComplete && page !== "setup" && (
+          <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            Setup is not finished yet (Claude, Etsy OAuth, and one shop template). You can still
+            explore, but draft publish needs the full checklist.
+          </p>
+        )}
         {error && (
           <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
