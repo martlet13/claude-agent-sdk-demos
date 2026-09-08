@@ -55,6 +55,13 @@ log "bun install: email-agent"
 log "uv sync: research-agent"
 ( cd research-agent && uv sync ) || { echo "FAILED: research-agent"; fail=1; }
 
+# --- Runtime working directories -------------------------------------------
+# hello-world and resume-generator point the agent's cwd at agent/custom_scripts,
+# which does not exist in a fresh checkout. Without it the SDK fails to spawn
+# the Claude CLI subprocess ("spawn node ENOENT").
+log "creating agent working directories"
+mkdir -p hello-world/agent/custom_scripts resume-generator/agent/custom_scripts
+
 if [ "$fail" -ne 0 ]; then
   log "one or more demos failed to install"
   exit 1
