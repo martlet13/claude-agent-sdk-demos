@@ -40,6 +40,12 @@ A React + Express chat UI backed by the SDK, showing a full conversation loop ov
 ### 📄 [Resume Generator](./resume-generator)
 Generates a one-page `.docx` resume by web-searching a person's name (LinkedIn, GitHub, news) and assembling the findings.
 
+### 🛍️ [Etsy Listing Assistant](./etsy-listing-assistant)
+A local generate → pack → **draft** publish loop for Etsy sellers:
+- Claude Agent SDK writes titles, descriptions, tags, and image briefs with the seller’s own API key
+- Builds a listing pack on disk
+- Creates **draft** listings via the seller’s own Etsy Open API app (no vendor proxy, never auto-activates)
+
 ## Quick Start
 
 Each demo has its own directory with dedicated setup instructions. Navigate to the specific demo folder and follow its README for setup and usage details.
