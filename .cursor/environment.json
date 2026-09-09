@@ -1,0 +1,16 @@
+{
+  "name": "Claude Agent SDK Demos",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "simple-chatapp",
+      "command": "export BUN_INSTALL=\"$HOME/.bun\"; export PATH=\"$HOME/.local/bin:$BUN_INSTALL/bin:$PATH\"; cd simple-chatapp && npm run dev",
+      "description": "Runs the Simple Chat App demo: Express + WebSocket backend on :3001 and the Vite React client on :5173."
+    }
+  ],
+  "ports": [
+    { "name": "email-agent", "port": 3000 },
+    { "name": "chatapp-server", "port": 3001 },
+    { "name": "vite-client", "port": 5173 }
+  ]
+}
