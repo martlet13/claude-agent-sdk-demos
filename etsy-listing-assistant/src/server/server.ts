@@ -8,6 +8,7 @@ import { createHttpApp } from "./http-app.js";
 import { defaultDataRoot } from "./paths.js";
 import { briefsFromTheme } from "./promo-art.js";
 import type { GenerationAdapter } from "./generation.js";
+import { openBrowserWindow, shouldAutoOpen } from "./open-browser.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -119,7 +120,8 @@ if (offline && mockEtsy && !ctx.credentials.publicStatus().etsyConfigured) {
 const app = createHttpApp(ctx);
 
 const distDir = path.join(__dirname, "../../dist");
-if (fs.existsSync(distDir)) {
+const servesUi = fs.existsSync(distDir);
+if (servesUi) {
   app.use(express.static(distDir));
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api") || req.path.startsWith("/media")) {
@@ -128,6 +130,23 @@ if (fs.existsSync(distDir)) {
     }
     res.sendFile(path.join(distDir, "index.html"));
   });
+} else {
+  // No built UI: answer with instructions instead of a bare 404 so a seller who
+  // ran `npm start` without `npm run build` sees what to do next.
+  app.get("/", (_req, res) => {
+    res
+      .status(200)
+      .type("html")
+      .send(`<!doctype html>
+<html><body style="font-family: Georgia, serif; padding: 48px; background: #f6efe4; color: #1c1917; max-width: 640px;">
+  <h1>Etsy Listing Assistant</h1>
+  <p>The local API is running on ${publicOrigin}, but the UI has not been built yet.</p>
+  <p>In the <code>etsy-listing-assistant</code> folder run one of:</p>
+  <pre style="background:#fff;padding:12px;border-radius:8px;">npm run dev        # hot-reload UI on http://127.0.0.1:5173
+npm run build &amp;&amp; npm start   # single process on ${publicOrigin}</pre>
+  <p>Both commands open the UI in a new browser window on this computer.</p>
+</body></html>`);
+  });
 }
 
 app.listen(PORT, "127.0.0.1", () => {
@@ -135,4 +154,15 @@ app.listen(PORT, "127.0.0.1", () => {
   console.log(`Local data directory: ${dataRoot}`);
   if (offline) console.log("Offline generation is on (no Claude API calls).");
   if (mockEtsy) console.log("Etsy HTTP is mocked locally — drafts are not created on a real shop.");
+  const uiUrl = process.env.ETSY_ASSISTANT_UI_URL || (servesUi ? publicOrigin : "");
+  if (uiUrl && shouldAutoOpen()) {
+    const launch = openBrowserWindow(uiUrl);
+    console.log(
+      `Opened ${uiUrl} in ${launch.newWindow ? "a new browser window" : "your default browser"}. Set ETSY_ASSISTANT_NO_OPEN=1 to skip.`,
+    );
+  } else if (uiUrl) {
+    console.log(`Open ${uiUrl} in your browser.`);
+  } else {
+    console.log("UI is not built. Run `npm run dev` for hot reload or `npm run build` before `npm start`.");
+  }
 });

@@ -42,8 +42,10 @@ npm install
 npm run dev
 ```
 
-- UI: http://localhost:5173
+- UI: http://127.0.0.1:5173 — opens automatically in a **new browser window** on this computer once Vite is ready
 - Local API: http://127.0.0.1:8787
+
+Both servers bind to IPv4 loopback (`127.0.0.1`) on fixed ports. `localhost:5173` also works in Chrome, Edge, and Firefox.
 
 Or build the UI and run a single process:
 
@@ -52,7 +54,28 @@ npm run build
 npm start
 ```
 
-Then open http://127.0.0.1:8787.
+`npm start` serves the built UI at http://127.0.0.1:8787 and opens it in a new browser window.
+
+### Browser window behavior
+
+| Setting | Effect |
+| ------- | ------ |
+| default | Finds Chrome / Edge / Chromium / Brave (then Firefox) and launches `--new-window <url>`; otherwise uses the OS opener (`start`, `open`, `xdg-open`) |
+| `ETSY_ASSISTANT_BROWSER=/path/to/browser` | Force a specific browser binary |
+| `ETSY_ASSISTANT_NO_OPEN=1` | Never open a browser (scripts, CI, remote shells) |
+| `ETSY_ASSISTANT_UI_URL=http://…` | Open a different UI URL (for example a custom Vite port) |
+| `npm run open:ui` | Re-open the UI window later without restarting the servers |
+
+The window always points at `127.0.0.1`; the servers bind to loopback only, so the UI is not reachable from other machines.
+
+### Troubleshooting: "This site can't be reached" / `ERR_CONNECTION_REFUSED` on port 5173
+
+| Cause | Fix |
+| ----- | --- |
+| You ran `npm start` (API only) instead of `npm run dev` | Run `npm run dev`, or `npm run build && npm start` and use http://127.0.0.1:8787 |
+| Vite failed to start (see `[ui]` lines in the terminal) | Port 5173 is busy: stop the other process, or run `npx vite --port 5174` and `ETSY_ASSISTANT_UI_URL=http://127.0.0.1:5174 npm run open:ui` |
+| Browser opened before the server was ready | Click **Reload**; `npm run open:ui` waits up to 30 s for the UI before opening |
+| A firewall or proxy blocks loopback | Allow Node.js on private networks; bypass proxy for `127.0.0.1` and `localhost` |
 
 To walk the UI without live Claude or Etsy credentials (local preview only):
 

@@ -45,6 +45,7 @@ A local generate → pack → **draft** publish loop for Etsy sellers:
 - Claude Agent SDK writes titles, descriptions, tags, and image briefs with the seller’s own API key
 - Builds a listing pack on disk
 - Creates **draft** listings via the seller’s own Etsy Open API app (no vendor proxy, never auto-activates)
+- `npm run dev` / `npm start` opens the local UI in a new browser window on this computer
 
 ## Quick Start
 
