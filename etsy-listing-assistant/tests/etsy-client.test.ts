@@ -84,8 +84,93 @@ describe("EtsyClient.createDraft", () => {
     const result = await client.createDraft(draftInput(tempRoot()));
     expect(result).toMatchObject({ listingId: 1234, shopId: 99, state: "draft" });
     expect(result.sellerManagerUrl).toContain("1234");
+    expect(result.imagesUploaded).toBe(1);
+    expect(result.warnings).toEqual([]);
     expect(posted.some((line) => line.includes("/images"))).toBe(true);
     expect(saved).toBeUndefined();
+  });
+
+  it("keeps the draft listing id when a later image upload fails", async () => {
+    const app: EtsyAppCredentials = {
+      keystring: "k",
+      sharedSecret: "s",
+      redirectUri: "http://127.0.0.1/callback",
+      tokens: tokens(),
+    };
+    const client = new EtsyClient({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if ((init?.method ?? "GET") === "POST" && url.endsWith("/listings")) {
+          return new Response(JSON.stringify({ listing_id: 77, shop_id: 99 }), { status: 200 });
+        }
+        if (url.includes("/images")) {
+          return new Response("storage full", { status: 500 });
+        }
+        return new Response("nope", { status: 404 });
+      },
+      getApp: () => app,
+      saveTokens: () => undefined,
+      minCreateIntervalMs: 0,
+    });
+    const result = await client.createDraft(draftInput(tempRoot()));
+    expect(result.listingId).toBe(77);
+    expect(result.state).toBe("draft");
+    expect(result.imagesUploaded).toBe(0);
+    expect(result.warnings[0]).toMatch(/did not upload/i);
+  });
+
+  it("copies cloned variations onto the new draft and never sends state=active", async () => {
+    const bodies: string[] = [];
+    const app: EtsyAppCredentials = {
+      keystring: "k",
+      sharedSecret: "s",
+      redirectUri: "http://127.0.0.1/callback",
+      tokens: tokens(),
+    };
+    const client = new EtsyClient({
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (method === "POST" && url.endsWith("/listings")) {
+          bodies.push(String(init?.body));
+          return new Response(JSON.stringify({ listing_id: 88, shop_id: 99 }), { status: 200 });
+        }
+        if (url.includes("/images")) {
+          return new Response(JSON.stringify({ listing_image_id: 1 }), { status: 200 });
+        }
+        if (method === "PUT" && url.includes("/inventory")) {
+          bodies.push(String(init?.body));
+          expect(new Headers(init?.headers).get("content-type")).toMatch(/json/i);
+          return new Response(JSON.stringify({ products: [] }), { status: 200 });
+        }
+        return new Response("nope", { status: 404 });
+      },
+      getApp: () => app,
+      saveTokens: () => undefined,
+      minCreateIntervalMs: 0,
+    });
+    const input = {
+      ...draftInput(tempRoot()),
+      materials: ["paper", "ink"],
+      applyVariations: true,
+      inventory: {
+        products: [
+          {
+            propertyValues: [{ propertyId: 200, propertyName: "Color", values: ["Sage"] }],
+            offerings: [{ price: 18, quantity: 1, isEnabled: true }],
+          },
+        ],
+        priceOnProperty: [],
+        quantityOnProperty: [],
+        skuOnProperty: [],
+      },
+    };
+    const result = await client.createDraft(input);
+    expect(result.variationsApplied).toBe(true);
+    expect(bodies[0]).toContain("materials=paper%2Cink");
+    expect(bodies[0]).not.toContain("state=");
+    expect(bodies[1]).toContain('"property_name":"Color"');
+    expect(bodies[1]).toContain('"price":24');
   });
 
   it("refreshes expired tokens before calling the API", async () => {

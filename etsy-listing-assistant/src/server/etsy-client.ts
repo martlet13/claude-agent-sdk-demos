@@ -1,8 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { searchTaxonomy } from "../shared/taxonomy.js";
+import { hasVariations, parseInventoryResponse, buildInventoryUpdate } from "../shared/inventory.js";
 import { assertNeverActivates } from "../shared/validation.js";
-import type { DraftPublishResult, ListingType, ShopSection, TaxonomyHit } from "../shared/types.js";
+import type {
+  DraftPublishResult,
+  InventorySnapshot,
+  ListingType,
+  ShopSection,
+  TaxonomyHit,
+} from "../shared/types.js";
 import type { EtsyAppCredentials, EtsyTokens } from "./credential-store.js";
 import {
   parseUserIdFromAccessToken,
@@ -47,6 +54,9 @@ export interface CreateDraftInput {
   processingMax?: number;
   imagePaths: string[];
   digitalFilePaths: string[];
+  materials?: string[];
+  inventory?: InventorySnapshot;
+  applyVariations?: boolean;
 }
 
 export interface EtsyClientDeps {
@@ -122,17 +132,21 @@ export class EtsyClient {
   async request<T>(
     method: string,
     pathname: string,
-    init?: { body?: BodyInit; headers?: HeadersInit; form?: URLSearchParams },
+    init?: { body?: BodyInit; headers?: HeadersInit; form?: URLSearchParams; json?: unknown },
   ): Promise<T> {
     const url = pathname.startsWith("http") ? pathname : `${ETSY_API_BASE}${pathname}`;
     const headers = await this.authorizedHeaders(init?.headers);
-    if (init?.form && !headers.has("Content-Type")) {
+    let body: BodyInit | undefined = init?.form ?? init?.body;
+    if (init?.json !== undefined) {
+      headers.set("Content-Type", "application/json");
+      body = JSON.stringify(init.json);
+    } else if (init?.form && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/x-www-form-urlencoded");
     }
     const response = await this.fetchImpl(url, {
       method,
       headers,
-      body: init?.form ?? init?.body,
+      body,
     });
     if (response.status === 429) {
       const waitMs = retryAfterMs(response.headers);
@@ -237,6 +251,23 @@ export class EtsyClient {
     }));
   }
 
+  async getListingInventory(listingId: number): Promise<InventorySnapshot | undefined> {
+    const payload = await this.request<unknown>(
+      "GET",
+      `/application/listings/${listingId}/inventory`,
+    );
+    return parseInventoryResponse(payload);
+  }
+
+  async applyListingInventory(
+    listingId: number,
+    snapshot: InventorySnapshot,
+    overrides: { price: number; quantity: number },
+  ): Promise<void> {
+    const body = buildInventoryUpdate(snapshot, overrides);
+    await this.request("PUT", `/application/listings/${listingId}/inventory`, { json: body });
+  }
+
   async createDraft(input: CreateDraftInput): Promise<DraftPublishResult> {
     await this.pacer.wait();
     const { shopId } = await this.resolveShop();
@@ -258,6 +289,7 @@ export class EtsyClient {
     if (input.returnPolicyId) form.set("return_policy_id", String(input.returnPolicyId));
     if (input.processingMin) form.set("processing_min", String(input.processingMin));
     if (input.processingMax) form.set("processing_max", String(input.processingMax));
+    if (input.materials?.length) form.set("materials", input.materials.join(","));
 
     const bodyObject = Object.fromEntries(form.entries());
     assertNeverActivates(bodyObject);
@@ -271,11 +303,45 @@ export class EtsyClient {
       { form },
     );
 
+    const warnings: string[] = [];
+    let imagesUploaded = 0;
     for (const [index, imagePath] of input.imagePaths.entries()) {
-      await this.uploadListingImage(shopId, created.listing_id, imagePath, index + 1);
+      try {
+        await this.uploadListingImage(shopId, created.listing_id, imagePath, index + 1);
+        imagesUploaded += 1;
+      } catch (error) {
+        warnings.push(
+          `Image ${path.basename(imagePath)} did not upload (${errorMessage(error)}). Open the draft in Seller Manager to add it.`,
+        );
+      }
     }
+
+    let filesUploaded = 0;
     for (const filePath of input.digitalFilePaths) {
-      await this.uploadListingFile(shopId, created.listing_id, filePath);
+      try {
+        await this.uploadListingFile(shopId, created.listing_id, filePath);
+        filesUploaded += 1;
+      } catch (error) {
+        warnings.push(
+          `File ${path.basename(filePath)} did not upload (${errorMessage(error)}). Attach it in Seller Manager.`,
+        );
+      }
+    }
+
+    let variationsApplied = false;
+    const shouldApply = input.applyVariations !== false && hasVariations(input.inventory);
+    if (shouldApply && input.inventory) {
+      try {
+        await this.applyListingInventory(created.listing_id, input.inventory, {
+          price: input.price,
+          quantity: input.quantity,
+        });
+        variationsApplied = true;
+      } catch (error) {
+        warnings.push(
+          `Variations from your template were not applied (${errorMessage(error)}). Edit inventory on the draft in Seller Manager.`,
+        );
+      }
     }
 
     return {
@@ -283,6 +349,12 @@ export class EtsyClient {
       shopId: created.shop_id ?? shopId,
       state: "draft",
       sellerManagerUrl: `https://www.etsy.com/your/shops/me/listing-editor/edit/${created.listing_id}`,
+      imagesUploaded,
+      imageCount: input.imagePaths.length,
+      filesUploaded,
+      fileCount: input.digitalFilePaths.length,
+      variationsApplied,
+      warnings,
     };
   }
 
@@ -317,4 +389,8 @@ export class EtsyClient {
       { body: form },
     );
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

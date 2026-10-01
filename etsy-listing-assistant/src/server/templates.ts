@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
-import type { PublishTemplate } from "../shared/types.js";
+import type { InventorySnapshot, PublishTemplate } from "../shared/types.js";
 import type { EtsyListingSnapshot } from "./etsy-client.js";
 import { appPaths, ensureDir } from "./paths.js";
 
 export function templateFromListing(
   listing: EtsyListingSnapshot,
   name?: string,
+  inventory?: InventorySnapshot,
 ): PublishTemplate {
   return {
     id: randomUUID(),
@@ -23,6 +24,7 @@ export function templateFromListing(
     isSupply: listing.isSupply,
     processingMin: listing.processingMin,
     processingMax: listing.processingMax,
+    inventory,
     createdAt: new Date().toISOString(),
   };
 }

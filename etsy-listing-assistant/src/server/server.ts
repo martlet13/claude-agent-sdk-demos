@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createAppContext } from "./app-context.js";
 import { createHttpApp } from "./http-app.js";
 import { defaultDataRoot } from "./paths.js";
+import { maybeOpenBrowser } from "./open-browser.js";
 import { briefsFromTheme } from "./promo-art.js";
 import type { GenerationAdapter } from "./generation.js";
 
@@ -25,6 +26,7 @@ const offlineAdapter: GenerationAdapter = {
         title: `${request.theme} printable wall art`.slice(0, 140),
         description: `A listing about ${request.theme}. Review this copy, then create a draft on your shop.`,
         tags: ["wall art", "print", "home decor", "digital"],
+        materials: ["paper", "ink"],
       },
       briefs: briefsFromTheme(request.theme, request.ideaCount),
       rawText: "{}",
@@ -43,6 +45,31 @@ const mockEtsyFetch: typeof fetch = async (input, init) => {
     return new Response(JSON.stringify({ listing_id: 424242, shop_id: 7, state: "draft" }), {
       status: 200,
     });
+  }
+  if (url.includes("/inventory") && method === "PUT") {
+    return new Response(JSON.stringify({ products: [] }), { status: 200 });
+  }
+  if (url.includes("/inventory")) {
+    return new Response(
+      JSON.stringify({
+        products: [
+          {
+            sku: "",
+            property_values: [{ property_id: 200, property_name: "Color", values: ["Sage"] }],
+            offerings: [{ price: { amount: 2400, divisor: 100 }, quantity: 1, is_enabled: true }],
+          },
+          {
+            sku: "",
+            property_values: [{ property_id: 200, property_name: "Color", values: ["Terracotta"] }],
+            offerings: [{ price: { amount: 2400, divisor: 100 }, quantity: 1, is_enabled: true }],
+          },
+        ],
+        price_on_property: [],
+        quantity_on_property: [],
+        sku_on_property: [],
+      }),
+      { status: 200 },
+    );
   }
   if (url.includes("/images") || url.includes("/files")) {
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -111,6 +138,21 @@ if (offline && mockEtsy && !ctx.credentials.publicStatus().etsyConfigured) {
       taxonomyId: 2078,
       shippingProfileId: 9,
       isSupply: false,
+      inventory: {
+        products: [
+          {
+            propertyValues: [{ propertyId: 200, propertyName: "Color", values: ["Sage"] }],
+            offerings: [{ price: 24, quantity: 1, isEnabled: true }],
+          },
+          {
+            propertyValues: [{ propertyId: 200, propertyName: "Color", values: ["Terracotta"] }],
+            offerings: [{ price: 24, quantity: 1, isEnabled: true }],
+          },
+        ],
+        priceOnProperty: [],
+        quantityOnProperty: [],
+        skuOnProperty: [],
+      },
       createdAt: new Date().toISOString(),
     });
   }
@@ -135,4 +177,7 @@ app.listen(PORT, "127.0.0.1", () => {
   console.log(`Local data directory: ${dataRoot}`);
   if (offline) console.log("Offline generation is on (no Claude API calls).");
   if (mockEtsy) console.log("Etsy HTTP is mocked locally — drafts are not created on a real shop.");
+  if (fs.existsSync(distDir)) {
+    maybeOpenBrowser(publicOrigin);
+  }
 });

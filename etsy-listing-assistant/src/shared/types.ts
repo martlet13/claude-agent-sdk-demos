@@ -22,6 +22,33 @@ export interface ListingCopy {
   materials?: string[];
 }
 
+export interface VariationPropertyValue {
+  propertyId: number;
+  propertyName: string;
+  scaleId?: number;
+  values: string[];
+}
+
+export interface VariationOffering {
+  price: number;
+  quantity: number;
+  isEnabled: boolean;
+}
+
+export interface VariationProduct {
+  sku?: string;
+  propertyValues: VariationPropertyValue[];
+  offerings: VariationOffering[];
+}
+
+/** Seller-owned listing inventory cloned into a publish template. No third-party defaults. */
+export interface InventorySnapshot {
+  products: VariationProduct[];
+  priceOnProperty: number[];
+  quantityOnProperty: number[];
+  skuOnProperty: number[];
+}
+
 export interface ImageBrief {
   filename: string;
   alt: string;
@@ -98,6 +125,7 @@ export interface PublishTemplate {
   isSupply: boolean;
   processingMin?: number;
   processingMax?: number;
+  inventory?: InventorySnapshot;
   createdAt: string;
 }
 
@@ -120,6 +148,8 @@ export interface PublishRequest {
   price: number;
   quantity: number;
   listingType: ListingType;
+  /** When true, copy cloned variation products onto the new draft after create. */
+  applyVariations?: boolean;
 }
 
 export interface DraftPublishResult {
@@ -127,6 +157,32 @@ export interface DraftPublishResult {
   shopId: number;
   state: "draft";
   sellerManagerUrl: string;
+  imagesUploaded: number;
+  imageCount: number;
+  filesUploaded: number;
+  fileCount: number;
+  variationsApplied: boolean;
+  warnings: string[];
+}
+
+export interface PublishLogEntry {
+  id: string;
+  createdAt: string;
+  packId: string;
+  packTitle: string;
+  templateId: string;
+  templateName: string;
+  listingId?: number;
+  shopId?: number;
+  state: "draft" | "failed";
+  sellerManagerUrl?: string;
+  imagesUploaded: number;
+  imageCount: number;
+  filesUploaded: number;
+  fileCount: number;
+  variationsApplied: boolean;
+  warnings: string[];
+  error?: string;
 }
 
 export interface SetupStatus {

@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { extractJsonObject } from "../shared/json.js";
 import { requirePreset } from "../shared/presets.js";
-import { sanitizeTags } from "../shared/validation.js";
+import { sanitizeMaterials, sanitizeTags } from "../shared/validation.js";
 import { ETSY_LIMITS } from "../shared/etsy-limits.js";
 import type { GenerateRequest, ImageBrief, ListingCopy } from "../shared/types.js";
 import { briefsFromTheme } from "./promo-art.js";
@@ -25,6 +25,9 @@ export function parseGeneratedCopy(payload: unknown, request: GenerateRequest): 
   const title = String(data.title ?? "").trim();
   const description = String(data.description ?? "").trim();
   const tags = sanitizeTags(Array.isArray(data.tags) ? data.tags.map(String) : []);
+  const materials = sanitizeMaterials(
+    Array.isArray(data.materials) ? data.materials.map(String) : [],
+  );
   if (!title || !description) {
     throw new Error("Generation did not return a title and description.");
   }
@@ -39,6 +42,7 @@ export function parseGeneratedCopy(payload: unknown, request: GenerateRequest): 
       title: title.slice(0, ETSY_LIMITS.titleMax),
       description: description.slice(0, ETSY_LIMITS.descriptionMax),
       tags,
+      materials: materials.length ? materials : undefined,
     },
     briefs: briefs.slice(0, request.ideaCount),
   };
@@ -113,6 +117,7 @@ Return ONLY one JSON object (no markdown commentary) with:
   "title": string,
   "description": string,
   "tags": string[],
+  "materials": string[],
   "imageBriefs": [
     { "headline": string, "alt": string, "motif": string, "palette": [string, string, string] }
   ]
@@ -121,6 +126,7 @@ Rules:
 - Title <= 140 characters, specific and searchable, no ALL CAPS spam.
 - Description is honest, scannable, and uses short sections. Do not invent shop policies, shipping times, or brand names.
 - Tags: at most 13, each <= 20 characters, lowercase, no duplicates.
+- Materials: optional, at most 13, each <= 20 characters, generic (paper, ink, cotton) unless the seller named them.
 - imageBriefs length must match the requested idea count.
 - Do not mention competitors. Avoid trademarked characters or celebrity likenesses.
 - Subject to Etsy and Claude usage terms; keep claims factual.`;

@@ -21,6 +21,17 @@ describe("publish templates", () => {
         processingMax: 5,
       },
       "Boards",
+      {
+        products: [
+          {
+            propertyValues: [{ propertyId: 200, propertyName: "Size", values: ["8x10"] }],
+            offerings: [{ price: 42, quantity: 1, isEnabled: true }],
+          },
+        ],
+        priceOnProperty: [],
+        quantityOnProperty: [],
+        skuOnProperty: [],
+      },
     );
     expect(template).toMatchObject({
       name: "Boards",
@@ -28,6 +39,13 @@ describe("publish templates", () => {
       shippingProfileId: 9,
       readinessStateId: 4,
       returnPolicyId: 6,
+      inventory: {
+        products: [
+          {
+            propertyValues: [{ propertyId: 200, propertyName: "Size", values: ["8x10"] }],
+          },
+        ],
+      },
     });
   });
 

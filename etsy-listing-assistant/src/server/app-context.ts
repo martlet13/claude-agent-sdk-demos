@@ -2,6 +2,7 @@ import { CredentialStore, type EtsyTokens } from "./credential-store.js";
 import { ClaudeGenerationAdapter, type GenerationAdapter } from "./generation.js";
 import { JobRunner } from "./jobs.js";
 import { PackStore } from "./pack-builder.js";
+import { PublishLogStore } from "./publish-log.js";
 import { SettingsStore } from "./settings.js";
 import { TemplateStore } from "./templates.js";
 import { EtsyClient } from "./etsy-client.js";
@@ -27,6 +28,7 @@ export interface AppContext {
   packs: PackStore;
   templates: TemplateStore;
   settings: SettingsStore;
+  publishLog: PublishLogStore;
   jobs: JobRunner;
   pendingOauth: PendingOauth | null;
   generationAdapter?: GenerationAdapter;
@@ -49,6 +51,7 @@ export function createAppContext(input: {
     packs,
     templates: new TemplateStore(input.dataRoot),
     settings: new SettingsStore(input.dataRoot),
+    publishLog: new PublishLogStore(input.dataRoot),
     jobs: undefined as unknown as JobRunner,
     pendingOauth: null,
     generationAdapter: input.generationAdapter,
