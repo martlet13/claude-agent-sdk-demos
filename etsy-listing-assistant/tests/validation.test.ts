@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertNeverActivates,
+  sanitizeMaterials,
   sanitizeTags,
   validateCopy,
   validatePackForDraft,
@@ -52,6 +53,10 @@ describe("sanitizeTags", () => {
     expect(tags[0]).toBe("wall art");
     expect(tags).toHaveLength(13);
     expect(tags.every((tag) => tag.length <= 20)).toBe(true);
+  });
+
+  it("sanitizes materials the same way as tags", () => {
+    expect(sanitizeMaterials(["Cotton Paper", "cotton paper", "ink!"])).toEqual(["cotton paper", "ink"]);
   });
 });
 

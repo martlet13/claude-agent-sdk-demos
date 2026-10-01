@@ -19,6 +19,7 @@ export function appPaths(root: string) {
     recentTaxonomyFile: path.join(root, "cache", "recent-taxonomy.json"),
     packsDir: path.join(root, "packs"),
     jobsDir: path.join(root, "jobs"),
+    publishLogFile: path.join(root, "publish-log.json"),
   };
 }
 

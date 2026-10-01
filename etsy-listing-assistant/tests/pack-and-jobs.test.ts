@@ -55,6 +55,31 @@ describe("pack builder", () => {
       "promo-01.png",
     ]);
   });
+
+  it("duplicates a pack onto a new id with copied files", () => {
+    const root = tempRoot();
+    const packs = new PackStore(root);
+    const pack = packs.create({
+      presetId: "wall-art",
+      theme: "reuse me",
+      listingType: "physical",
+      aspectRatio: "1:1",
+      copy: {
+        title: "Reusable Print",
+        description: "Same assets, another draft.",
+        tags: ["print"],
+        materials: ["paper"],
+      },
+      images: [{ filename: "promo-01.png", alt: "one", source: "generated" }],
+    });
+    fs.writeFileSync(packs.imageAbsPath(pack.id, "promo-01.png"), "png");
+    const copy = packs.duplicate(pack.id);
+    expect(copy.id).not.toBe(pack.id);
+    expect(copy.copy.title).toBe("Reusable Print");
+    expect(copy.images[0].id).not.toBe(pack.images[0].id);
+    expect(fs.existsSync(packs.imageAbsPath(copy.id, "promo-01.png"))).toBe(true);
+    expect(packs.list()).toHaveLength(2);
+  });
 });
 
 describe("generation jobs", () => {

@@ -42,7 +42,7 @@ npm install
 npm run dev
 ```
 
-- UI: http://localhost:5173
+- UI: http://127.0.0.1:5173
 - Local API: http://127.0.0.1:8787
 
 Or build the UI and run a single process:
@@ -67,9 +67,9 @@ That mode never calls Anthropic or Etsy. It seeds a local preview shop so you ca
 1. **Claude** — paste your Anthropic API key in Setup.
 2. **Etsy app** — create an app at [Your Apps](https://www.etsy.com/developers/your-apps). Register the redirect URI shown in Setup (default `http://127.0.0.1:8787/api/etsy/oauth/callback`). Etsy may require an exact match, including `http` vs `https`.
 3. **OAuth** — click Connect shop and grant access. Tokens stay on disk.
-4. **Template** — enter one of **your** listing IDs and clone it (shipping profile, readiness, return policy, who/when made).
-5. **Generate** — pick a generic preset (wall art, digital download, custom product), optionally attach reference photos, run a theme, edit copy, exclude/reorder images, and open the pack folder.
-6. **Create draft** — choose template, shop section, taxonomy, price. Open the draft URL in Seller Manager and activate it yourself. The Open API `createDraftListing` call never sends `state=active`.
+4. **Template** — enter one of **your** listing IDs and clone it (shipping profile, variations, readiness, return policy, who/when made).
+5. **Generate** — pick a generic preset (wall art, digital download, custom product), optionally attach reference photos, run a theme, edit copy and materials, exclude/reorder images, and open the pack folder. **Duplicate pack** reuses the same assets for another draft without regenerating.
+6. **Create draft** — choose template, shop section, taxonomy, price, and whether to copy variations. Open the draft URL in Seller Manager and activate it yourself. The Open API `createDraftListing` call never sends `state=active`. If an image or variation upload fails after Etsy creates the listing, the app still shows the listing ID and records the warning in **History**.
 
 Generation is available as soon as a Claude key is saved. Creating a draft still requires Etsy OAuth and at least one template cloned from your shop. Use **Disconnect shop** in Setup to drop tokens and reconnect without re-creating the Etsy app.
 
@@ -80,6 +80,7 @@ Generation is available as soon as a Claude key is saved. Creating a draft still
   .master.key          # 256-bit key, mode 0600
   credentials.enc      # AES-256-GCM vault (Claude key + Etsy tokens)
   templates.json
+  publish-log.json     # local draft attempts (ids, warnings, Seller Manager links)
   cache/               # shop sections, taxonomy, recent IDs
   packs/<id>/
     manifest.json
@@ -87,7 +88,7 @@ Generation is available as soon as a Claude key is saved. Creating a draft still
     files/
 ```
 
-Override the home directory with `ETSY_ASSISTANT_HOME`. Bound long Claude waits with `ETSY_ASSISTANT_GENERATION_TIMEOUT_MS` (default `120000`).
+Override the home directory with `ETSY_ASSISTANT_HOME`. Bound long Claude waits with `ETSY_ASSISTANT_GENERATION_TIMEOUT_MS` (default `120000`). Set `ETSY_ASSISTANT_NO_OPEN=1` to skip the auto-opened browser window. The Vite UI binds `127.0.0.1:5173` (not `localhost`/`::1`) so Windows clients can connect.
 
 ## Tests
 

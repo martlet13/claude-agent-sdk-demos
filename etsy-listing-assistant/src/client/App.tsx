@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ETSY_LIMITS } from "../shared/etsy-limits";
+import { variationSummary } from "../shared/inventory";
 import type {
   AspectRatio,
   DraftPublishResult,
   ListingCopy,
   ListingPackManifest,
   ListingType,
+  PublishLogEntry,
   PublishTemplate,
   ShopSection,
   TaxonomyHit,
 } from "../shared/types";
 import { api, imageUrl, type AppStatus, type GenerationJob } from "./client-api";
 
-type Page = "setup" | "generate" | "pack" | "publish" | "templates";
+type Page = "setup" | "generate" | "pack" | "publish" | "templates" | "history";
 
 const PAGES: Array<{ id: Page; label: string }> = [
   { id: "setup", label: "Setup" },
@@ -20,6 +22,7 @@ const PAGES: Array<{ id: Page; label: string }> = [
   { id: "pack", label: "Pack" },
   { id: "publish", label: "Publish" },
   { id: "templates", label: "Templates" },
+  { id: "history", label: "History" },
 ];
 
 export default function App() {
@@ -132,6 +135,7 @@ export default function App() {
           />
         )}
         {page === "templates" && <TemplatesPage setError={setError} onChange={refresh} />}
+        {page === "history" && <HistoryPage status={status} setError={setError} />}
       </main>
     </div>
   );
@@ -570,14 +574,15 @@ function PackPage({
     return <p className="text-stone-600">No packs yet. Generate a theme first.</p>;
   }
 
-  const copy = pack.copy;
+  const currentPack = pack;
+  const copy = currentPack.copy;
 
   async function persistCopy(next: ListingCopy) {
     setError("");
     try {
-      const saved = await api.saveCopy(pack.id, next);
+      const saved = await api.saveCopy(currentPack.id, next);
       setPack(saved);
-      const detail = await api.pack(pack.id);
+      const detail = await api.pack(currentPack.id);
       setIssues(detail.validation.issues.map((issue) => issue.message));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -585,13 +590,16 @@ function PackPage({
   }
 
   async function moveImage(imageId: string, direction: -1 | 1) {
-    const sorted = pack.images.slice().sort((a, b) => a.order - b.order);
+    const sorted = currentPack.images.slice().sort((a, b) => a.order - b.order);
     const index = sorted.findIndex((image) => image.id === imageId);
     const swapWith = index + direction;
     if (index < 0 || swapWith < 0 || swapWith >= sorted.length) return;
-    const next = await api.saveImages(pack.id, [
-      { id: sorted[index].id, order: sorted[swapWith].order },
-      { id: sorted[swapWith].id, order: sorted[index].order },
+    const left = sorted[index];
+    const right = sorted[swapWith];
+    if (!left || !right) return;
+    const next = await api.saveImages(currentPack.id, [
+      { id: left.id, order: right.order },
+      { id: right.id, order: left.order },
     ]);
     setPack(next);
   }
@@ -625,6 +633,19 @@ function PackPage({
             }}
           >
             Open output folder
+          </button>
+          <button
+            className="rounded-full border border-stone-400 px-4 py-2 text-sm"
+            onClick={async () => {
+              try {
+                const copy = await api.duplicatePack(pack.id);
+                await load(copy.id);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+          >
+            Duplicate pack
           </button>
           <p className="self-center text-xs text-stone-500">On disk: {folder}</p>
         </div>
@@ -662,6 +683,30 @@ function PackPage({
               persistCopy({
                 ...copy,
                 tags: e.target.value.split(",").map((tag) => tag.trim()).filter(Boolean),
+              })
+            }
+          />
+        </Field>
+        <Field
+          label={`Materials (${(copy.materials ?? []).length}/${ETSY_LIMITS.materialMaxCount}, optional)`}
+        >
+          <input
+            className={inputClass()}
+            value={(copy.materials ?? []).join(", ")}
+            placeholder="paper, ink, cotton"
+            onChange={(e) =>
+              setPack({
+                ...pack,
+                copy: {
+                  ...copy,
+                  materials: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
+                },
+              })
+            }
+            onBlur={(e) =>
+              persistCopy({
+                ...copy,
+                materials: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
               })
             }
           />
@@ -781,6 +826,7 @@ function PublishPage({
   const [price, setPrice] = useState(19);
   const [quantity, setQuantity] = useState(1);
   const [listingType, setListingType] = useState<ListingType>("physical");
+  const [applyVariations, setApplyVariations] = useState(true);
   const [result, setResult] = useState<DraftPublishResult | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -790,6 +836,7 @@ function PublishPage({
       if (list[0]) {
         setTemplateId(list[0].id);
         setListingType(list[0].listingType);
+        setApplyVariations(Boolean(list[0].inventory?.products?.length));
         if (list[0].taxonomyId) setTaxonomyId(list[0].taxonomyId);
         if (list[0].shopSectionId) setShopSectionId(list[0].shopSectionId);
       }
@@ -836,6 +883,7 @@ function PublishPage({
               const next = templates.find((item) => item.id === e.target.value);
               if (next) {
                 setListingType(next.listingType);
+                setApplyVariations(Boolean(next.inventory?.products?.length));
                 if (next.taxonomyId) setTaxonomyId(next.taxonomyId);
                 if (next.shopSectionId) setShopSectionId(next.shopSectionId);
               }
@@ -852,7 +900,20 @@ function PublishPage({
           <p className="text-xs text-stone-500">
             Source listing {selectedTemplate.sourceListingId} · {selectedTemplate.listingType} · who_made{" "}
             {selectedTemplate.whoMade}
+            {variationSummary(selectedTemplate.inventory)
+              ? ` · ${variationSummary(selectedTemplate.inventory)}`
+              : ""}
           </p>
+        )}
+        {variationSummary(selectedTemplate?.inventory) && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={applyVariations}
+              onChange={(e) => setApplyVariations(e.target.checked)}
+            />
+            Copy variations from this template ({variationSummary(selectedTemplate?.inventory)})
+          </label>
         )}
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Shop section">
@@ -954,6 +1015,7 @@ function PublishPage({
                 price,
                 quantity,
                 listingType,
+                applyVariations,
               });
               setResult(created);
             } catch (err) {
@@ -971,9 +1033,21 @@ function PublishPage({
         <section className="rounded-2xl border border-lime-200 bg-lime-50 p-6">
           <h3 className="font-display text-xl">Draft created</h3>
           <p className="mt-2 text-sm">Listing ID {result.listingId} · state {result.state}</p>
+          <p className="mt-1 text-sm text-stone-700">
+            Images {result.imagesUploaded}/{result.imageCount}
+            {result.fileCount > 0 ? ` · files ${result.filesUploaded}/${result.fileCount}` : ""}
+            {result.variationsApplied ? " · variations copied" : ""}
+          </p>
           <a className="mt-3 inline-block underline" href={result.sellerManagerUrl} target="_blank" rel="noreferrer">
             Open draft in Seller Manager
           </a>
+          {result.warnings.length > 0 && (
+            <ul className="mt-3 list-disc pl-5 text-sm text-amber-900">
+              {result.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
     </div>
@@ -1056,7 +1130,81 @@ function TemplatesPage({
             <p className="mt-2 text-xs text-stone-500">
               Listing {template.sourceListingId} · {template.listingType} · taxonomy{" "}
               {template.taxonomyId ?? "—"}
+              {variationSummary(template.inventory) ? ` · ${variationSummary(template.inventory)}` : ""}
             </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HistoryPage({
+  status,
+  setError,
+}: {
+  status: AppStatus;
+  setError: (value: string) => void;
+}) {
+  const [entries, setEntries] = useState<PublishLogEntry[]>(status.recentPublishes ?? []);
+
+  useEffect(() => {
+    api
+      .publishLog()
+      .then(setEntries)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, [setError]);
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-stone-600">
+        No draft attempts yet. After you create a draft, it will appear here with the listing ID and
+        Seller Manager link.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="font-display text-2xl">Draft history</h2>
+      <p className="text-sm text-stone-600">
+        Local log only — stored on this computer. Failed image or variation steps still keep the draft
+        listing ID when Etsy created one.
+      </p>
+      <ul className="space-y-3">
+        {entries.map((entry) => (
+          <li key={entry.id} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="font-semibold">{entry.packTitle}</p>
+              <p className="text-xs text-stone-500">{new Date(entry.createdAt).toLocaleString()}</p>
+            </div>
+            <p className="mt-1 text-sm">
+              {entry.state === "draft" ? "Draft" : "Failed"} · template {entry.templateName}
+              {entry.listingId ? ` · listing ${entry.listingId}` : ""}
+            </p>
+            <p className="text-xs text-stone-500">
+              Images {entry.imagesUploaded}/{entry.imageCount}
+              {entry.fileCount > 0 ? ` · files ${entry.filesUploaded}/${entry.fileCount}` : ""}
+              {entry.variationsApplied ? " · variations copied" : ""}
+            </p>
+            {entry.sellerManagerUrl && (
+              <a
+                className="mt-2 inline-block text-sm underline"
+                href={entry.sellerManagerUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Seller Manager
+              </a>
+            )}
+            {entry.error && <p className="mt-2 text-sm text-red-800">{entry.error}</p>}
+            {entry.warnings.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-xs text-amber-900">
+                {entry.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

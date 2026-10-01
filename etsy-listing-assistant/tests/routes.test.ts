@@ -116,6 +116,11 @@ describe("HTTP routes", () => {
     expect(published.body.sellerManagerUrl).toContain("9001");
     expect(postedBodies[0]).not.toContain("active");
     expect(postedBodies[0]).toContain("should_auto_renew=false");
+    expect(published.body.imagesUploaded).toBeGreaterThan(0);
+    expect(published.body.warnings).toEqual([]);
+
+    const log = await fetch(`${origin}/api/publish-log`).then((res) => res.json());
+    expect(log[0]).toMatchObject({ listingId: 9001, state: "draft", packId: job.packId });
 
     const opened = await fetch(`${origin}/api/packs/${job.packId}/open`, { method: "POST" }).then(
       (res) => res.json(),
@@ -177,5 +182,113 @@ describe("HTTP routes", () => {
     const after = await fetch(`${origin}/api/status`).then((res) => res.json());
     expect(after.etsyConfigured).toBe(false);
     expect(after.etsyAppSaved).toBe(true);
+  });
+
+  it("clones variations from a shop listing, duplicates a pack, and records failed publishes", async () => {
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/inventory") && method === "GET") {
+        return new Response(
+          JSON.stringify({
+            products: [
+              {
+                property_values: [{ property_id: 200, property_name: "Color", values: ["Sage"] }],
+                offerings: [{ price: { amount: 1800, divisor: 100 }, quantity: 1, is_enabled: true }],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/listings/") && method === "GET") {
+        return new Response(
+          JSON.stringify({
+            listing_id: 111,
+            title: "Sage print",
+            type: "physical",
+            who_made: "i_did",
+            when_made: "made_to_order",
+            taxonomy_id: 222,
+            shipping_profile_id: 333,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/listings") && method === "POST") {
+        return new Response("boom", { status: 500 });
+      }
+      return new Response("unexpected " + url, { status: 404 });
+    };
+    const { ctx } = testContext({ fetchImpl });
+    ctx.credentials.update(() => ({
+      claude: { apiKey: "local-claude-test-key" },
+      etsy: {
+        keystring: "k",
+        sharedSecret: "s",
+        redirectUri: "http://127.0.0.1:8787/api/etsy/oauth/callback",
+        tokens: {
+          accessToken: "44.access",
+          refreshToken: "44.refresh",
+          expiresAt: Date.now() + 3_600_000,
+          scope: "listings_w shops_r",
+          userId: 44,
+          shopId: 44,
+          shopName: "Demo Shop",
+        },
+      },
+    }));
+    const { server, origin } = await listen(ctx);
+    servers.push(server);
+
+    const cloned = await fetch(`${origin}/api/templates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: 111, name: "Sage template" }),
+    }).then(async (res) => ({ status: res.status, body: await res.json() }));
+    expect(cloned.status).toBe(201);
+    expect(cloned.body.inventory.products[0].propertyValues[0].values).toEqual(["Sage"]);
+
+    const started = await fetch(`${origin}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        theme: "sage botanicals",
+        ideaCount: 1,
+        aspectRatio: "1:1",
+        presetId: "wall-art",
+      }),
+    }).then((res) => res.json());
+    let job = started;
+    for (let i = 0; i < 40 && job.status !== "complete"; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      job = await fetch(`${origin}/api/jobs/${started.id}`).then((res) => res.json());
+    }
+    expect(job.status).toBe("complete");
+
+    const duplicated = await fetch(`${origin}/api/packs/${job.packId}/duplicate`, { method: "POST" }).then(
+      (res) => res.json(),
+    );
+    expect(duplicated.id).not.toBe(job.packId);
+
+    const published = await fetch(`${origin}/api/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        packId: duplicated.id,
+        templateId: cloned.body.id,
+        taxonomyId: 222,
+        price: 28,
+        quantity: 1,
+        listingType: "physical",
+        applyVariations: true,
+      }),
+    }).then(async (res) => ({ status: res.status, body: await res.json() }));
+    expect(published.status).toBe(400);
+    expect(published.body.error).toMatch(/failed/i);
+
+    const log = await fetch(`${origin}/api/publish-log`).then((res) => res.json());
+    expect(log[0].state).toBe("failed");
+    expect(log[0].packId).toBe(duplicated.id);
   });
 });

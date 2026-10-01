@@ -6,7 +6,8 @@ import express, { type Request, type Response, type Router } from "express";
 import multer from "multer";
 import { STARTER_PRESETS } from "../shared/presets.js";
 import { searchTaxonomy } from "../shared/taxonomy.js";
-import { validatePublishRequest } from "../shared/validation.js";
+import { sanitizeMaterials, validatePublishRequest } from "../shared/validation.js";
+import { hasVariations } from "../shared/inventory.js";
 import type { ListingCopy, PublishRequest } from "../shared/types.js";
 import {
   beginOauth,
@@ -88,6 +89,7 @@ export function createRouter(ctx: AppContext): Router {
         sections: ctx.settings.loadSections(),
         recentTaxonomy: ctx.settings.read().recentTaxonomy,
         defaultRedirectUri: defaultRedirectUri(ctx.publicOrigin),
+        recentPublishes: ctx.publishLog.list().slice(0, 8),
         risks: {
           claude:
             "Generation uses your own Claude / Anthropic credentials on this computer. Web-UI automation is not used in v1; official API access remains subject to Anthropic terms.",
@@ -249,6 +251,7 @@ export function createRouter(ctx: AppContext): Router {
         title: String(copy.title ?? ""),
         description: String(copy.description ?? ""),
         tags: Array.isArray(copy.tags) ? copy.tags.map(String) : [],
+        materials: sanitizeMaterials(Array.isArray(copy.materials) ? copy.materials.map(String) : []),
       }));
     }),
   );
@@ -267,6 +270,13 @@ export function createRouter(ctx: AppContext): Router {
       if (!fs.existsSync(folder)) throw new Error("Listing pack folder was not found.");
       openLocalFolder(folder);
       res.json({ folder });
+    }),
+  );
+
+  router.post(
+    "/packs/:id/duplicate",
+    asyncHandler(async (req, res) => {
+      res.status(201).json(ctx.packs.duplicate(req.params.id));
     }),
   );
 
@@ -315,8 +325,14 @@ export function createRouter(ctx: AppContext): Router {
       }
       const client = createEtsyClient(ctx);
       const listing = await client.getListing(listingId);
+      let inventory;
+      try {
+        inventory = await client.getListingInventory(listingId);
+      } catch {
+        inventory = undefined;
+      }
       const template = ctx.templates.add(
-        templateFromListing(listing, req.body?.name),
+        templateFromListing(listing, req.body?.name, inventory),
       );
       res.status(201).json(template);
     }),
@@ -368,6 +384,13 @@ export function createRouter(ctx: AppContext): Router {
     }),
   );
 
+  router.get(
+    "/publish-log",
+    asyncHandler(async (_req, res) => {
+      res.json(ctx.publishLog.list());
+    }),
+  );
+
   router.post(
     "/publish",
     asyncHandler(async (req, res) => {
@@ -382,6 +405,7 @@ export function createRouter(ctx: AppContext): Router {
         price: Number(request.price ?? pack.price),
         quantity: Number(request.quantity ?? pack.quantity),
         listingType: request.listingType ?? template.listingType ?? pack.listingType,
+        applyVariations: request.applyVariations ?? hasVariations(template.inventory),
       };
       const check = validatePublishRequest(merged, {
         ...pack,
@@ -403,28 +427,73 @@ export function createRouter(ctx: AppContext): Router {
         name: `Taxonomy ${merged.taxonomyId}`,
         path: String(merged.taxonomyId),
       });
-      const result = await createEtsyClient(ctx).createDraft({
-        title: pack.copy.title,
-        description: pack.copy.description,
-        tags: pack.copy.tags,
+      ctx.packs.updateCommerce(pack.id, {
         price: merged.price,
         quantity: merged.quantity,
-        taxonomyId: merged.taxonomyId,
         listingType: merged.listingType,
-        whoMade: template.whoMade,
-        whenMade: template.whenMade,
-        isSupply: template.isSupply,
+        taxonomyId: merged.taxonomyId,
         shopSectionId: merged.shopSectionId,
-        shippingProfileId: template.shippingProfileId,
-        readinessStateId: template.readinessStateId,
-        returnPolicyId: template.returnPolicyId,
-        processingMin: template.processingMin,
-        processingMax: template.processingMax,
-        imagePaths: ctx.packs.includedImagePaths(pack),
-        digitalFilePaths:
-          merged.listingType === "download" ? ctx.packs.digitalFilePaths(pack) : [],
       });
-      res.json(result);
+      const logBase = {
+        packId: pack.id,
+        packTitle: pack.copy.title || pack.theme,
+        templateId: template.id,
+        templateName: template.name,
+        imagesUploaded: 0,
+        imageCount: ctx.packs.includedImagePaths(pack).length,
+        filesUploaded: 0,
+        fileCount: merged.listingType === "download" ? pack.digitalFiles.length : 0,
+        variationsApplied: false,
+        warnings: [] as string[],
+      };
+      try {
+        const result = await createEtsyClient(ctx).createDraft({
+          title: pack.copy.title,
+          description: pack.copy.description,
+          tags: pack.copy.tags,
+          materials: pack.copy.materials,
+          price: merged.price,
+          quantity: merged.quantity,
+          taxonomyId: merged.taxonomyId,
+          listingType: merged.listingType,
+          whoMade: template.whoMade,
+          whenMade: template.whenMade,
+          isSupply: template.isSupply,
+          shopSectionId: merged.shopSectionId,
+          shippingProfileId: template.shippingProfileId,
+          readinessStateId: template.readinessStateId,
+          returnPolicyId: template.returnPolicyId,
+          processingMin: template.processingMin,
+          processingMax: template.processingMax,
+          imagePaths: ctx.packs.includedImagePaths(pack),
+          digitalFilePaths:
+            merged.listingType === "download" ? ctx.packs.digitalFilePaths(pack) : [],
+          inventory: template.inventory,
+          applyVariations: merged.applyVariations,
+        });
+        ctx.publishLog.add({
+          ...logBase,
+          listingId: result.listingId,
+          shopId: result.shopId,
+          state: "draft",
+          sellerManagerUrl: result.sellerManagerUrl,
+          imagesUploaded: result.imagesUploaded,
+          imageCount: result.imageCount,
+          filesUploaded: result.filesUploaded,
+          fileCount: result.fileCount,
+          variationsApplied: result.variationsApplied,
+          warnings: result.warnings,
+        });
+        res.json(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.publishLog.add({
+          ...logBase,
+          state: "failed",
+          error: message,
+        });
+        throw error;
+      }
     }),
   );
 

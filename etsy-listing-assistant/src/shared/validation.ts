@@ -21,14 +21,21 @@ export function normalizeTag(raw: string): string {
 }
 
 export function sanitizeTags(tags: string[]): string[] {
+  return sanitizeLimitedNames(tags, ETSY_LIMITS.tagMaxCount, ETSY_LIMITS.tagMaxLength);
+}
+
+export function sanitizeMaterials(materials: string[]): string[] {
+  return sanitizeLimitedNames(materials, ETSY_LIMITS.materialMaxCount, ETSY_LIMITS.materialMaxLength);
+}
+
+function sanitizeLimitedNames(values: string[], maxCount: number, maxLength: number): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
-  for (const tag of tags) {
-    const normalized = normalizeTag(tag);
+  for (const value of values) {
+    const normalized = normalizeTag(value).slice(0, maxLength).trim();
     if (!normalized || seen.has(normalized)) continue;
-    if (normalized.length > ETSY_LIMITS.tagMaxLength) continue;
     if (!TAG_PATTERN.test(normalized) && normalized.length > 1) {
-      const compact = normalized.replace(/[^a-z0-9 -]/g, "").trim();
+      const compact = normalized.replace(/[^a-z0-9 -]/g, "").trim().slice(0, maxLength);
       if (!compact || seen.has(compact)) continue;
       seen.add(compact);
       result.push(compact);
@@ -36,7 +43,7 @@ export function sanitizeTags(tags: string[]): string[] {
       seen.add(normalized);
       result.push(normalized);
     }
-    if (result.length >= ETSY_LIMITS.tagMaxCount) break;
+    if (result.length >= maxCount) break;
   }
   return result;
 }
@@ -80,6 +87,23 @@ export function validateCopy(copy: ListingCopy): ValidationResult {
         issue(
           `tags.${index}`,
           `Tag "${tag}" exceeds ${ETSY_LIMITS.tagMaxLength} characters.`,
+        ),
+      );
+    }
+  });
+
+  const materials = copy.materials ?? [];
+  if (materials.length > ETSY_LIMITS.materialMaxCount) {
+    issues.push(
+      issue("materials", `Etsy allows at most ${ETSY_LIMITS.materialMaxCount} materials.`),
+    );
+  }
+  materials.forEach((material, index) => {
+    if (material.length > ETSY_LIMITS.materialMaxLength) {
+      issues.push(
+        issue(
+          `materials.${index}`,
+          `Material "${material}" exceeds ${ETSY_LIMITS.materialMaxLength} characters.`,
         ),
       );
     }

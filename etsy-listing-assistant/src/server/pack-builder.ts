@@ -156,6 +156,22 @@ export class PackStore {
     return manifest;
   }
 
+  duplicate(id: string): ListingPackManifest {
+    const source = this.read(id);
+    const newId = randomUUID();
+    fs.cpSync(this.packDir(id), this.packDir(newId), { recursive: true });
+    const next: ListingPackManifest = {
+      ...source,
+      id: newId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      images: source.images.map((image) => ({ ...image, id: randomUUID() })),
+      digitalFiles: source.digitalFiles.map((file) => ({ ...file, id: randomUUID() })),
+    };
+    this.write(next);
+    return next;
+  }
+
   updateCommerce(
     id: string,
     patch: Partial<Pick<ListingPackManifest, "price" | "quantity" | "taxonomyId" | "shopSectionId" | "listingType">>,

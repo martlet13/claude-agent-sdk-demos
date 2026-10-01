@@ -4,6 +4,7 @@ import type {
   ListingCopy,
   ListingPackManifest,
   NichePreset,
+  PublishLogEntry,
   PublishTemplate,
   SetupStatus,
   ShopSection,
@@ -19,6 +20,7 @@ export interface AppStatus extends SetupStatus {
   presets: NichePreset[];
   sections: ShopSection[];
   recentTaxonomy: TaxonomyHit[];
+  recentPublishes?: PublishLogEntry[];
   defaultRedirectUri: string;
   risks: { claude: string; etsy: string };
 }
@@ -104,6 +106,8 @@ export const api = {
     body.set("file", file);
     return request<ListingPackManifest>(`/api/packs/${id}/files`, { method: "POST", body });
   },
+  duplicatePack: (id: string) =>
+    request<ListingPackManifest>(`/api/packs/${id}/duplicate`, { method: "POST" }),
   templates: () => request<PublishTemplate[]>("/api/templates"),
   cloneTemplate: (listingId: number, name?: string) =>
     request<PublishTemplate>("/api/templates", {
@@ -136,7 +140,9 @@ export const api = {
     price: number;
     quantity: number;
     listingType: "physical" | "download";
+    applyVariations?: boolean;
   }) => request<DraftPublishResult>("/api/publish", { method: "POST", body: JSON.stringify(body) }),
+  publishLog: () => request<PublishLogEntry[]>("/api/publish-log"),
 };
 
 export function imageUrl(packId: string, filename: string): string {

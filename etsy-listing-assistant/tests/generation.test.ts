@@ -17,6 +17,7 @@ describe("parseGeneratedCopy", () => {
         title: "T".repeat(200),
         description: "A warm print for a sunny wall.",
         tags: ["Wall Art", "wall art", "this tag is definitely too long", "sun", "dunes"],
+        materials: ["Cotton Paper", "archival ink"],
         imageBriefs: [
           { headline: "Sun", alt: "sun", motif: "emblem", palette: ["#111111", "#cc7744", "#f6efe4"] },
           { headline: "Dune", alt: "dune", motif: "wide", palette: ["#222222", "#dd8855", "#fff8ee"] },
@@ -26,6 +27,7 @@ describe("parseGeneratedCopy", () => {
     );
     expect(parsed.copy.title).toHaveLength(140);
     expect(parsed.copy.tags).toEqual(["wall art", "this tag is definite", "sun", "dunes"]);
+    expect(parsed.copy.materials).toEqual(["cotton paper", "archival ink"]);
     expect(parsed.briefs).toHaveLength(2);
     expect(parsed.briefs[0].palette[0]).toBe("#111111");
   });
